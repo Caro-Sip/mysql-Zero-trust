@@ -108,9 +108,6 @@
             <input type="hidden" id="upd-id">
             <div class="form-group"><label>Name</label><input type="text" id="upd-name"></div>
             <div class="form-group"><label>DOB</label><input type="text" id="upd-dob"></div>
-            <input type="hidden" id="upd-checkin">
-            <input type="hidden" id="upd-doc">
-            <input type="hidden" id="upd-nurse">
             <div class="form-group"><label>Symptoms</label><textarea id="upd-sym"></textarea></div>
             <div class="form-group"><label>Diagnosis</label><textarea id="upd-diag"></textarea></div>
             <div class="form-group"><label>Update Media (Replaces existing)</label><input type="file" id="upd-files" multiple></div>
@@ -287,9 +284,6 @@
         document.getElementById('upd-id').value = r.patientId || ''; 
         document.getElementById('upd-name').value = r.patientName;
         document.getElementById('upd-dob').value = r.patientDob;
-        document.getElementById('upd-checkin').value = r.checkInDate || '';
-        document.getElementById('upd-doc').value = r.doctorName;
-        document.getElementById('upd-nurse').value = r.nurseName;
         document.getElementById('upd-sym').value = r.symptoms;
         document.getElementById('upd-diag').value = r.diagnosis;
     }
@@ -300,9 +294,6 @@
         formData.append('patientId', document.getElementById('upd-id').value);
         formData.append('patientName', document.getElementById('upd-name').value);
         formData.append('patientDob', document.getElementById('upd-dob').value);
-        formData.append('checkInDate', document.getElementById('upd-checkin').value);
-        formData.append('doctorName', document.getElementById('upd-doc').value);
-        formData.append('nurseName', document.getElementById('upd-nurse').value);
         formData.append('symptoms', document.getElementById('upd-sym').value);
         formData.append('diagnosis', document.getElementById('upd-diag').value);
 

@@ -400,46 +400,42 @@ public class SimpleWebServer {
                         params = parseJsonBody(t.getRequestBody());
                     }
                     
-                    PatientRecord record = new PatientRecord();
-                    record.setRecordIndex(Integer.parseInt(params.get("recordIndex")));
+                    int recordIndex = Integer.parseInt(params.get("recordIndex"));
+                    PatientRecord existing = repository.getById(recordIndex);
                     
-                    record.setPatientName(params.get("patientName"));
-                    record.setPatientDob(Date.valueOf(params.get("patientDob")));
-                    
-                    String checkInStr = params.get("checkInDate");
-                    if (checkInStr != null && !checkInStr.trim().isEmpty()) {
-                        if (checkInStr.length() == 10) checkInStr += " 00:00:00";
-                        try {
-                            record.setCheckInDate(Timestamp.valueOf(checkInStr));
-                        } catch (Exception e) {
-                            record.setCheckInDate(new Timestamp(System.currentTimeMillis()));
-                        }
-                    } else {
-                         record.setCheckInDate(new Timestamp(System.currentTimeMillis()));
+                    if (existing == null) {
+                        sendResponse(t, 404, "Record Not Found");
+                        return;
                     }
 
-                    record.setDoctorName(params.get("doctorName"));
-                    record.setNurseName(params.get("nurseName"));
+                    // Update allowed fields
+                    if (params.containsKey("patientName")) existing.setPatientName(params.get("patientName"));
+                    if (params.containsKey("patientDob")) existing.setPatientDob(Date.valueOf(params.get("patientDob")));
+                    
+                    // Check-in, Doctor, Nurse are preserved from 'existing' automatically.
 
-                    // For update, we need to handle media carefully.
-                    // If new files are uploaded, we replace the old ones (simplest approach for now).
-                    // If no new files, we need to preserve the old ones.
-                    // However, repository.update() overwrites everything.
-                    // So we should fetch the existing record first if we want to preserve.
-                    // But here, we will just encrypt what we have. 
-                    // If uploadedFiles is empty, processEncryption will result in empty byte arrays, clearing media.
-                    // To fix this properly, we'd need to fetch -> decrypt -> merge -> encrypt.
-                    // For this iteration, let's assume "Update" replaces media if provided, or clears it if not?
-                    // No, clearing it is bad.
-                    // Let's fetch the existing record to get the current encrypted blobs.
+                    // Media Handling: If no new files, try to restore existing ones
+                    if (uploadedFiles.isEmpty()) {
+                        String role = getRoleFromRequest(t);
+                        boolean isDoctor = "doctor".equalsIgnoreCase(role);
+                        try {
+                            // Decrypt and restore to disk
+                            patientService.decryptAndRestore(existing, isDoctor);
+                            
+                            // Find restored files
+                            try (java.util.stream.Stream<Path> stream = Files.list(Paths.get("media"))) {
+                                List<Path> restored = stream
+                                    .filter(p -> p.getFileName().toString().startsWith("restored_" + existing.getRecordIndex() + "_"))
+                                    .collect(java.util.stream.Collectors.toList());
+                                uploadedFiles.addAll(restored);
+                            }
+                        } catch (Exception e) {
+                            System.out.println("Warning: Could not restore media for update: " + e.getMessage());
+                        }
+                    }
                     
-                    // Since we don't have a "getByIndex" in repository, we can't easily fetch.
-                    // We'll assume the user re-uploads if they want to change media, 
-                    // OR we modify repository to support partial updates (too complex for now).
-                    // Let's just process what we have.
-                    
-                    patientService.processEncryption(record, params.get("symptoms"), params.get("diagnosis"), uploadedFiles);
-                    repository.update(record);
+                    patientService.processEncryption(existing, params.get("symptoms"), params.get("diagnosis"), uploadedFiles);
+                    repository.update(existing);
                     
                     // Cleanup
                     for (Path p : uploadedFiles) {
