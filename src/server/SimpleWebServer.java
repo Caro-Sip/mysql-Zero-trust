@@ -1,6 +1,8 @@
 package server;
 
-import com.sun.net.httpserver.HttpServer;
+import com.sun.net.httpserver.HttpsServer;
+import com.sun.net.httpserver.HttpsConfigurator;
+import com.sun.net.httpserver.HttpsParameters;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpExchange;
 import model.PatientRecord;
@@ -9,11 +11,14 @@ import repository.MySQLHospitalRepository;
 import service.PatientService;
 import util.DBConnection;
 
+import javax.net.ssl.*;
 import java.io.*;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.security.*;
+import java.security.cert.CertificateException;
 import java.sql.Date;
 import java.util.List;
 import java.util.Map;
@@ -26,8 +31,37 @@ public class SimpleWebServer {
     private static final HospitalRepository repository = new MySQLHospitalRepository();
     private static final PatientService patientService = new PatientService();
 
-    public void start() throws IOException {
-        HttpServer server = HttpServer.create(new InetSocketAddress(PORT), 0);
+    public void start() throws IOException, NoSuchAlgorithmException, KeyStoreException, CertificateException, UnrecoverableKeyException, KeyManagementException {
+        // Load Keystore
+        char[] password = "password".toCharArray();
+        KeyStore ks = KeyStore.getInstance("PKCS12");
+        FileInputStream fis = new FileInputStream("keystore.p12");
+        ks.load(fis, password);
+
+        // Setup KeyManager
+        KeyManagerFactory kmf = KeyManagerFactory.getInstance("SunX509");
+        kmf.init(ks, password);
+
+        // Setup SSLContext
+        SSLContext sslContext = SSLContext.getInstance("TLS");
+        sslContext.init(kmf.getKeyManagers(), null, null);
+
+        // Create HTTPS Server
+        HttpsServer server = HttpsServer.create(new InetSocketAddress(PORT), 0);
+        server.setHttpsConfigurator(new HttpsConfigurator(sslContext) {
+            public void configure(HttpsParameters params) {
+                try {
+                    SSLContext c = getSSLContext();
+                    SSLEngine engine = c.createSSLEngine();
+                    params.setNeedClientAuth(false);
+                    params.setCipherSuites(engine.getEnabledCipherSuites());
+                    params.setProtocols(engine.getEnabledProtocols());
+                    params.setSSLParameters(c.getDefaultSSLParameters());
+                } catch (Exception ex) {
+                    System.out.println("Failed to create HTTPS port");
+                }
+            }
+        });
 
         // Serve HTML
         server.createContext("/", new StaticHandler());
@@ -39,7 +73,7 @@ public class SimpleWebServer {
         server.createContext("/api/update", new UpdateHandler());
 
         server.setExecutor(null); // creates a default executor
-        System.out.println("Server started on http://localhost:" + PORT);
+        System.out.println("Server started on https://localhost:" + PORT);
         server.start();
     }
 
