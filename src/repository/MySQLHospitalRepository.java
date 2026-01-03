@@ -14,10 +14,10 @@ public class MySQLHospitalRepository implements HospitalRepository {
     public void insert(PatientRecord record) throws SQLException {
         String sql = """
             INSERT INTO Hospital_Records
-            (patient_id_hash, patient_name, patient_dob, doctor_name, nurse_name,
+            (patient_id_hash, patient_name, patient_dob, check_in_date, doctor_name, nurse_name,
              encrypted_symptoms, encrypted_diagnosis, encrypted_images, encrypted_videos,
              doctor_encrypted_aes_key, nurse_encrypted_aes_key)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """;
 
         try (Connection conn = DBConnection.getConnection();
@@ -26,14 +26,15 @@ public class MySQLHospitalRepository implements HospitalRepository {
             stmt.setString(1, Hashing.sha256(record.getPatientId()));
             stmt.setString(2, record.getPatientName());
             stmt.setDate(3, record.getPatientDob());
-            stmt.setString(4, record.getDoctorName());
-            stmt.setString(5, record.getNurseName());
-            stmt.setBytes(6, record.getEncryptedSymptoms());
-            stmt.setBytes(7, record.getEncryptedDiagnosis());
-            stmt.setBytes(8, record.getEncryptedImages());
-            stmt.setBytes(9, record.getEncryptedVideos());
-            stmt.setBytes(10, record.getDoctorEncryptedAesKey());
-            stmt.setBytes(11, record.getNurseEncryptedAesKey());
+            stmt.setTimestamp(4, record.getCheckInDate());
+            stmt.setString(5, record.getDoctorName());
+            stmt.setString(6, record.getNurseName());
+            stmt.setBytes(7, record.getEncryptedSymptoms());
+            stmt.setBytes(8, record.getEncryptedDiagnosis());
+            stmt.setBytes(9, record.getEncryptedImages());
+            stmt.setBytes(10, record.getEncryptedVideos());
+            stmt.setBytes(11, record.getDoctorEncryptedAesKey());
+            stmt.setBytes(12, record.getNurseEncryptedAesKey());
 
             stmt.executeUpdate();
         }
@@ -45,6 +46,7 @@ public class MySQLHospitalRepository implements HospitalRepository {
             UPDATE Hospital_Records
             SET patient_name = ?,
                 patient_dob = ?,
+                check_in_date = ?,
                 doctor_name = ?,
                 nurse_name = ?,
                 encrypted_symptoms = ?,
@@ -61,15 +63,16 @@ public class MySQLHospitalRepository implements HospitalRepository {
 
             stmt.setString(1, record.getPatientName());
             stmt.setDate(2, record.getPatientDob());
-            stmt.setString(3, record.getDoctorName());
-            stmt.setString(4, record.getNurseName());
-            stmt.setBytes(5, record.getEncryptedSymptoms());
-            stmt.setBytes(6, record.getEncryptedDiagnosis());
-            stmt.setBytes(7, record.getEncryptedImages());
-            stmt.setBytes(8, record.getEncryptedVideos());
-            stmt.setBytes(9, record.getDoctorEncryptedAesKey());
-            stmt.setBytes(10, record.getNurseEncryptedAesKey());
-            stmt.setInt(11, record.getRecordIndex());
+            stmt.setTimestamp(3, record.getCheckInDate());
+            stmt.setString(4, record.getDoctorName());
+            stmt.setString(5, record.getNurseName());
+            stmt.setBytes(6, record.getEncryptedSymptoms());
+            stmt.setBytes(7, record.getEncryptedDiagnosis());
+            stmt.setBytes(8, record.getEncryptedImages());
+            stmt.setBytes(9, record.getEncryptedVideos());
+            stmt.setBytes(10, record.getDoctorEncryptedAesKey());
+            stmt.setBytes(11, record.getNurseEncryptedAesKey());
+            stmt.setInt(12, record.getRecordIndex());
 
             stmt.executeUpdate();
         }

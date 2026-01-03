@@ -3,6 +3,7 @@ package server;
 import com.sun.net.httpserver.HttpsServer;
 import com.sun.net.httpserver.HttpsConfigurator;
 import com.sun.net.httpserver.HttpsParameters;
+import com.sun.net.httpserver.HttpsExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpExchange;
 import model.PatientRecord;
@@ -19,7 +20,9 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.security.*;
 import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
 import java.sql.Date;
+import java.sql.Timestamp;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
@@ -35,16 +38,20 @@ public class SimpleWebServer {
         // Load Keystore
         char[] password = "password".toCharArray();
         KeyStore ks = KeyStore.getInstance("PKCS12");
-        FileInputStream fis = new FileInputStream("keystore.p12");
+        FileInputStream fis = new FileInputStream("src/certs/server.p12");
         ks.load(fis, password);
 
         // Setup KeyManager
         KeyManagerFactory kmf = KeyManagerFactory.getInstance("SunX509");
         kmf.init(ks, password);
 
+        // Setup TrustManager (for mTLS)
+        TrustManagerFactory tmf = TrustManagerFactory.getInstance("SunX509");
+        tmf.init(ks);
+
         // Setup SSLContext
         SSLContext sslContext = SSLContext.getInstance("TLS");
-        sslContext.init(kmf.getKeyManagers(), null, null);
+        sslContext.init(kmf.getKeyManagers(), tmf.getTrustManagers(), null);
 
         // Create HTTPS Server
         HttpsServer server = HttpsServer.create(new InetSocketAddress(PORT), 0);
@@ -52,11 +59,9 @@ public class SimpleWebServer {
             public void configure(HttpsParameters params) {
                 try {
                     SSLContext c = getSSLContext();
-                    SSLEngine engine = c.createSSLEngine();
-                    params.setNeedClientAuth(false);
-                    params.setCipherSuites(engine.getEnabledCipherSuites());
-                    params.setProtocols(engine.getEnabledProtocols());
-                    params.setSSLParameters(c.getDefaultSSLParameters());
+                    SSLParameters sslParams = c.getDefaultSSLParameters();
+                    sslParams.setNeedClientAuth(true); // Enforce mTLS here
+                    params.setSSLParameters(sslParams);
                 } catch (Exception ex) {
                     System.out.println("Failed to create HTTPS port");
                 }
@@ -141,6 +146,19 @@ public class SimpleWebServer {
                     record.setPatientId(params.get("patientId"));
                     record.setPatientName(params.get("patientName"));
                     record.setPatientDob(Date.valueOf(params.get("patientDob")));
+                    
+                    String checkInStr = params.get("checkInDate");
+                    if (checkInStr != null && !checkInStr.trim().isEmpty()) {
+                        if (checkInStr.length() == 10) checkInStr += " 00:00:00";
+                        try {
+                            record.setCheckInDate(Timestamp.valueOf(checkInStr));
+                        } catch (Exception e) {
+                            record.setCheckInDate(new Timestamp(System.currentTimeMillis()));
+                        }
+                    } else {
+                        record.setCheckInDate(new Timestamp(System.currentTimeMillis()));
+                    }
+
                     record.setDoctorName(params.get("doctorName"));
                     record.setNurseName(params.get("nurseName"));
 
@@ -223,8 +241,12 @@ public class SimpleWebServer {
                     Map<String, String> queryParams = parseQueryParams(t.getRequestURI().getQuery());
                     String type = queryParams.get("type");
                     String query = queryParams.get("query");
-                    String role = queryParams.get("role");
+                    
+                    // Auto-detect role from certificate
+                    String role = getRoleFromCertificate(t);
                     boolean isDoctor = "doctor".equalsIgnoreCase(role);
+                    
+                    System.out.println("Search Request - Role detected: " + role);
 
                     List<PatientRecord> results = repository.search(query, type);
                     
@@ -238,6 +260,7 @@ public class SimpleWebServer {
                             Map<String, Object> map = new HashMap<>();
                             map.put("patientName", r.getPatientName());
                             map.put("patientDob", r.getPatientDob().toString());
+                            map.put("checkInDate", r.getCheckInDate() != null ? r.getCheckInDate().toString() : "");
                             map.put("doctorName", r.getDoctorName());
                             map.put("nurseName", r.getNurseName());
                             map.put("symptoms", decrypted[0]);
@@ -277,6 +300,22 @@ public class SimpleWebServer {
                     
                     record.setPatientName(params.get("patientName"));
                     record.setPatientDob(Date.valueOf(params.get("patientDob")));
+                    
+                    String checkInStr = params.get("checkInDate");
+                    if (checkInStr != null && !checkInStr.trim().isEmpty()) {
+                        if (checkInStr.length() == 10) checkInStr += " 00:00:00";
+                        try {
+                            record.setCheckInDate(Timestamp.valueOf(checkInStr));
+                        } catch (Exception e) {
+                            // Keep existing if parse fails? Or set to current? 
+                            // For update, maybe we should fetch existing if null, but here we are overwriting.
+                            // Let's default to current if invalid.
+                            record.setCheckInDate(new Timestamp(System.currentTimeMillis()));
+                        }
+                    } else {
+                         record.setCheckInDate(new Timestamp(System.currentTimeMillis()));
+                    }
+
                     record.setDoctorName(params.get("doctorName"));
                     record.setNurseName(params.get("nurseName"));
 
@@ -344,5 +383,36 @@ public class SimpleWebServer {
         }
         sb.append("]");
         return sb.toString();
+    }
+
+    private static String getRoleFromCertificate(HttpExchange t) {
+        try {
+            if (t instanceof HttpsExchange) {
+                SSLSession session = ((HttpsExchange) t).getSSLSession();
+                if (session != null) {
+                    java.security.cert.Certificate[] certs = session.getPeerCertificates();
+                    if (certs.length > 0 && certs[0] instanceof X509Certificate) {
+                        X509Certificate x509 = (X509Certificate) certs[0];
+                        String dn = x509.getSubjectX500Principal().getName();
+                        // Extract CN (Common Name)
+                        // DN format example: CN=doctor_brown, OU=Hospital, ...
+                        String cn = "";
+                        for (String part : dn.split(",")) {
+                            if (part.trim().startsWith("CN=")) {
+                                cn = part.trim().substring(3);
+                                break;
+                            }
+                        }
+                        
+                        // Determine role based on CN
+                        if (cn.toLowerCase().contains("doctor")) return "doctor";
+                        if (cn.toLowerCase().contains("nurse")) return "nurse";
+                    }
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return "unknown"; // Default if no cert or unknown
     }
 }

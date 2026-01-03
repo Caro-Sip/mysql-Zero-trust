@@ -55,6 +55,7 @@
         <div class="form-group"><label>Patient ID</label><input type="text" id="ins-id"></div>
         <div class="form-group"><label>Name</label><input type="text" id="ins-name"></div>
         <div class="form-group"><label>DOB (yyyy-mm-dd)</label><input type="text" id="ins-dob"></div>
+        <div class="form-group"><label>Check-in Date (yyyy-mm-dd)</label><input type="text" id="ins-checkin"></div>
         <div class="form-group"><label>Doctor Name</label><input type="text" id="ins-doc"></div>
         <div class="form-group"><label>Nurse Name</label><input type="text" id="ins-nurse"></div>
         <div class="form-group"><label>Symptoms</label><textarea id="ins-sym"></textarea></div>
@@ -66,13 +67,7 @@
     <!-- SEARCH SECTION -->
     <div id="search-section" class="hidden">
         <h2>Search Record</h2>
-        <div class="form-group">
-            <label>Role (for decryption)</label>
-            <select id="search-role">
-                <option value="doctor">Doctor</option>
-                <option value="nurse">Nurse</option>
-            </select>
-        </div>
+        <!-- Role is now auto-detected from client certificate -->
         <div class="form-group">
             <label>Search By</label>
             <select id="search-type">
@@ -106,6 +101,7 @@
             <input type="hidden" id="upd-id">
             <div class="form-group"><label>Name</label><input type="text" id="upd-name"></div>
             <div class="form-group"><label>DOB</label><input type="text" id="upd-dob"></div>
+            <div class="form-group"><label>Check-in Date</label><input type="text" id="upd-checkin"></div>
             <div class="form-group"><label>Doctor</label><input type="text" id="upd-doc"></div>
             <div class="form-group"><label>Nurse</label><input type="text" id="upd-nurse"></div>
             <div class="form-group"><label>Symptoms</label><textarea id="upd-sym"></textarea></div>
@@ -157,6 +153,7 @@
         formData.append('patientId', document.getElementById('ins-id').value);
         formData.append('patientName', document.getElementById('ins-name').value);
         formData.append('patientDob', document.getElementById('ins-dob').value);
+        formData.append('checkInDate', document.getElementById('ins-checkin').value);
         formData.append('doctorName', document.getElementById('ins-doc').value);
         formData.append('nurseName', document.getElementById('ins-nurse').value);
         formData.append('symptoms', document.getElementById('ins-sym').value);
@@ -212,7 +209,7 @@
                 div.className = 'record-card';
                 div.innerHTML = `
                     <strong>${r.patientName}</strong> (ID: ${r.patientId || 'Hidden'})<br>
-                    DOB: ${r.patientDob} | Doc: ${r.doctorName} | Nurse: ${r.nurseName}<br>
+                    DOB: ${r.patientDob} | Check-in: ${r.checkInDate || 'N/A'} | Doc: ${r.doctorName} | Nurse: ${r.nurseName}<br>
                     <hr>
                     <em>Symptoms:</em> ${r.symptoms}<br>
                     <em>Diagnosis:</em> ${r.diagnosis}
@@ -228,7 +225,7 @@
     async function searchForUpdate() {
         const query = document.getElementById('upd-search-query').value;
         // Defaulting to name search for update flow simplicity
-        const res = await fetch(`${API_URL}/search?type=name&query=${encodeURIComponent(query)}&role=doctor`); // Assume doctor for update view
+        const res = await fetch(`${API_URL}/search?type=name&query=${encodeURIComponent(query)}`); 
         
         if (res.ok) {
             const records = await res.json();
@@ -240,6 +237,7 @@
                 document.getElementById('upd-id').value = r.patientId || ''; // Might be null if hash
                 document.getElementById('upd-name').value = r.patientName;
                 document.getElementById('upd-dob').value = r.patientDob;
+                document.getElementById('upd-checkin').value = r.checkInDate || '';
                 document.getElementById('upd-doc').value = r.doctorName;
                 document.getElementById('upd-nurse').value = r.nurseName;
                 document.getElementById('upd-sym').value = r.symptoms;
@@ -256,6 +254,7 @@
             patientId: document.getElementById('upd-id').value,
             patientName: document.getElementById('upd-name').value,
             patientDob: document.getElementById('upd-dob').value,
+            checkInDate: document.getElementById('upd-checkin').value,
             doctorName: document.getElementById('upd-doc').value,
             nurseName: document.getElementById('upd-nurse').value,
             symptoms: document.getElementById('upd-sym').value,
