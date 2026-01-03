@@ -28,13 +28,13 @@
 <body>
 
 <div class="container" id="login-section">
-    <h1>Database Login</h1>
+    <h1>Login</h1>
     <div class="form-group">
-        <label>MySQL Username</label>
-        <input type="text" id="dbUser" value="root">
+        <label>Username</label>
+        <input type="text" id="dbUser">
     </div>
     <div class="form-group">
-        <label>MySQL Password</label>
+        <label>Password</label>
         <input type="password" id="dbPass">
     </div>
     <button onclick="login()">Login</button>
@@ -55,9 +55,6 @@
         <div class="form-group"><label>Patient ID</label><input type="text" id="ins-id"></div>
         <div class="form-group"><label>Name</label><input type="text" id="ins-name"></div>
         <div class="form-group"><label>DOB (yyyy-mm-dd)</label><input type="text" id="ins-dob"></div>
-        <div class="form-group"><label>Check-in Date (yyyy-mm-dd)</label><input type="text" id="ins-checkin"></div>
-        <div class="form-group"><label>Doctor Name</label><input type="text" id="ins-doc"></div>
-        <div class="form-group"><label>Nurse Name</label><input type="text" id="ins-nurse"></div>
         <div class="form-group"><label>Symptoms</label><textarea id="ins-sym"></textarea></div>
         <div class="form-group"><label>Diagnosis</label><textarea id="ins-diag"></textarea></div>
         <div class="form-group"><label>Media Files (Images/Videos)</label><input type="file" id="ins-files" multiple></div>
@@ -106,6 +103,7 @@
             <div class="form-group"><label>Nurse</label><input type="text" id="upd-nurse"></div>
             <div class="form-group"><label>Symptoms</label><textarea id="upd-sym"></textarea></div>
             <div class="form-group"><label>Diagnosis</label><textarea id="upd-diag"></textarea></div>
+            <div class="form-group"><label>Update Media (Replaces existing)</label><input type="file" id="upd-files" multiple></div>
             <button onclick="submitUpdate()">Save Changes</button>
         </div>
     </div>
@@ -128,6 +126,9 @@
                 body: JSON.stringify({user, pass})
             });
             if (res.ok) {
+                const data = await res.json();
+                localStorage.setItem('token', data.token);
+                
                 document.getElementById('login-section').classList.add('hidden');
                 document.getElementById('main-section').classList.remove('hidden');
                 showSection('search');
@@ -153,9 +154,6 @@
         formData.append('patientId', document.getElementById('ins-id').value);
         formData.append('patientName', document.getElementById('ins-name').value);
         formData.append('patientDob', document.getElementById('ins-dob').value);
-        formData.append('checkInDate', document.getElementById('ins-checkin').value);
-        formData.append('doctorName', document.getElementById('ins-doc').value);
-        formData.append('nurseName', document.getElementById('ins-nurse').value);
         formData.append('symptoms', document.getElementById('ins-sym').value);
         formData.append('diagnosis', document.getElementById('ins-diag').value);
 
@@ -164,8 +162,10 @@
             formData.append('files', fileInput.files[i]);
         }
 
+        const token = localStorage.getItem('token');
         const res = await fetch(`${API_URL}/insert`, {
             method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + token },
             body: formData // Fetch automatically sets Content-Type to multipart/form-data
         });
 
@@ -182,11 +182,13 @@
     }
 
     async function searchRecord() {
-        const role = document.getElementById('search-role').value;
         const type = document.getElementById('search-type').value;
         const query = document.getElementById('search-query').value;
+        const token = localStorage.getItem('token');
 
-        const res = await fetch(`${API_URL}/search?type=${type}&query=${encodeURIComponent(query)}&role=${role}`);
+        const res = await fetch(`${API_URL}/search?type=${type}&query=${encodeURIComponent(query)}`, {
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
         const resultsDiv = document.getElementById('results');
         resultsDiv.innerHTML = '';
 
@@ -198,11 +200,17 @@
             }
             records.forEach(r => {
                 let mediaHtml = '';
-                if (r.image) {
-                    mediaHtml += `<br><strong>Image:</strong><br><img src="data:image/jpeg;base64,${r.image}" style="max-width:100%; margin-top:10px;">`;
+                if (r.images && r.images.length > 0) {
+                    mediaHtml += '<br><strong>Images:</strong><br>';
+                    r.images.forEach(img => {
+                        mediaHtml += `<img src="data:image/jpeg;base64,${img}" style="max-width:100%; margin-top:10px; margin-right: 10px;">`;
+                    });
                 }
-                if (r.video) {
-                    mediaHtml += `<br><strong>Video:</strong><br><video controls src="data:video/mp4;base64,${r.video}" style="max-width:100%; margin-top:10px;"></video>`;
+                if (r.videos && r.videos.length > 0) {
+                    mediaHtml += '<br><strong>Videos:</strong><br>';
+                    r.videos.forEach(vid => {
+                        mediaHtml += `<video controls src="data:video/mp4;base64,${vid}" style="max-width:100%; margin-top:10px; margin-right: 10px;"></video>`;
+                    });
                 }
 
                 const div = document.createElement('div');
@@ -224,8 +232,11 @@
 
     async function searchForUpdate() {
         const query = document.getElementById('upd-search-query').value;
+        const token = localStorage.getItem('token');
         // Defaulting to name search for update flow simplicity
-        const res = await fetch(`${API_URL}/search?type=name&query=${encodeURIComponent(query)}`); 
+        const res = await fetch(`${API_URL}/search?type=name&query=${encodeURIComponent(query)}`, {
+            headers: { 'Authorization': 'Bearer ' + token }
+        }); 
         
         if (res.ok) {
             const records = await res.json();
@@ -249,22 +260,27 @@
     }
 
     async function submitUpdate() {
-        const data = {
-            recordIndex: document.getElementById('upd-index').value,
-            patientId: document.getElementById('upd-id').value,
-            patientName: document.getElementById('upd-name').value,
-            patientDob: document.getElementById('upd-dob').value,
-            checkInDate: document.getElementById('upd-checkin').value,
-            doctorName: document.getElementById('upd-doc').value,
-            nurseName: document.getElementById('upd-nurse').value,
-            symptoms: document.getElementById('upd-sym').value,
-            diagnosis: document.getElementById('upd-diag').value
-        };
+        const formData = new FormData();
+        formData.append('recordIndex', document.getElementById('upd-index').value);
+        formData.append('patientId', document.getElementById('upd-id').value);
+        formData.append('patientName', document.getElementById('upd-name').value);
+        formData.append('patientDob', document.getElementById('upd-dob').value);
+        formData.append('checkInDate', document.getElementById('upd-checkin').value);
+        formData.append('doctorName', document.getElementById('upd-doc').value);
+        formData.append('nurseName', document.getElementById('upd-nurse').value);
+        formData.append('symptoms', document.getElementById('upd-sym').value);
+        formData.append('diagnosis', document.getElementById('upd-diag').value);
 
+        const fileInput = document.getElementById('upd-files');
+        for (let i = 0; i < fileInput.files.length; i++) {
+            formData.append('files', fileInput.files[i]);
+        }
+
+        const token = localStorage.getItem('token');
         const res = await fetch(`${API_URL}/update`, {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(data)
+            headers: { 'Authorization': 'Bearer ' + token },
+            body: formData
         });
 
         if (res.ok) {
