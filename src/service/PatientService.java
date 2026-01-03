@@ -22,32 +22,6 @@ public class PatientService {
         this.mediaService = new MediaService();
     }
 
-    public void encryptAndPrepareRecord(PatientRecord record, String symptoms, String diagnosis) throws Exception {
-        encryptAndPrepareRecord(record, symptoms, diagnosis, Collections.emptyList());
-    }
-
-    public void encryptAndPrepareRecord(PatientRecord record, String symptoms, String diagnosis, List<Path> mediaFiles) throws Exception {
-        // Load Keys
-        PublicKey doctorKey = keyService.loadPublicKey(KeyService.DOCTOR_PUBLIC_KEY);
-        PublicKey nurseKey = keyService.loadPublicKey(KeyService.NURSE_PUBLIC_KEY);
-
-        Encryptor doctorEncryptor = new Encryptor(doctorKey);
-        Encryptor nurseEncryptor = new Encryptor(nurseKey);
-
-        // Generate AES Key & Encrypt Data
-        SecretKey aesKey = doctorEncryptor.generateAESKey();
-        record.setEncryptedSymptoms(doctorEncryptor.encryptWithAES(symptoms, aesKey));
-        record.setEncryptedDiagnosis(doctorEncryptor.encryptWithAES(diagnosis, aesKey));
-
-        // Process Media
-        MediaService.MediaResult mediaResult = mediaService.processMediaFiles(doctorEncryptor, aesKey, mediaFiles);
-        record.setEncryptedImages(mediaResult.imageBytes);
-        record.setEncryptedVideos(mediaResult.videoBytes);
-        
-        record.setDoctorEncryptedAesKey(doctorEncryptor.encryptAESKeyWithRSA(aesKey));
-        record.setNurseEncryptedAesKey(nurseEncryptor.encryptAESKeyWithRSA(aesKey));
-    }
-
     public MediaService.MediaResult processEncryption(PatientRecord record, String symptoms, String diagnosis) throws Exception {
         return processEncryption(record, symptoms, diagnosis, Collections.emptyList());
     }
@@ -142,9 +116,5 @@ public class PatientService {
         }
 
         return media;
-    }
-    
-    public MediaService getMediaService() {
-        return mediaService;
     }
 }
