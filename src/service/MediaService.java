@@ -1,13 +1,19 @@
 package service;
 
 import javax.crypto.SecretKey;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
-import java.util.stream.Stream;
+import java.util.Map;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+import java.util.zip.ZipOutputStream;
 
 public class MediaService {
 
@@ -17,32 +23,68 @@ public class MediaService {
         public List<Path> processedFiles = new ArrayList<>();
     }
 
-    public MediaResult processMediaFiles(Encryptor encryptor, SecretKey aesKey) {
+    public MediaResult processMediaFiles(Encryptor encryptor, SecretKey aesKey, List<Path> filesToProcess) {
         MediaResult result = new MediaResult();
-        
-        try (Stream<Path> paths = Files.walk(Paths.get("media"))) {
-            List<Path> mediaFiles = paths.filter(Files::isRegularFile).toList();
+        List<Path> images = new ArrayList<>();
+        List<Path> videos = new ArrayList<>();
 
-            for (Path file : mediaFiles) {
+        try {
+            for (Path file : filesToProcess) {
+                if (!Files.exists(file)) continue;
                 String fileName = file.getFileName().toString().toLowerCase();
-                
                 if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg") || fileName.endsWith(".png")) {
-                    System.out.println("📸 Found Image: " + fileName);
-                    byte[] rawImage = Files.readAllBytes(file);
-                    result.imageBytes = encryptor.encryptBytesWithAES(rawImage, aesKey);
-                    result.processedFiles.add(file);
-                } 
-                else if (fileName.endsWith(".mp4") || fileName.endsWith(".avi")) {
-                    System.out.println("🎥 Found Video: " + fileName);
-                    byte[] rawVideo = Files.readAllBytes(file);
-                    result.videoBytes = encryptor.encryptBytesWithAES(rawVideo, aesKey);
-                    result.processedFiles.add(file);
+                    images.add(file);
+                } else if (fileName.endsWith(".mp4") || fileName.endsWith(".avi")) {
+                    videos.add(file);
                 }
+                result.processedFiles.add(file);
             }
+
+            if (!images.isEmpty()) {
+                byte[] zippedImages = zipFiles(images);
+                result.imageBytes = encryptor.encryptBytesWithAES(zippedImages, aesKey);
+            }
+            
+            if (!videos.isEmpty()) {
+                byte[] zippedVideos = zipFiles(videos);
+                result.videoBytes = encryptor.encryptBytesWithAES(zippedVideos, aesKey);
+            }
+
         } catch (Exception e) {
-            System.out.println("⚠️ Error reading media folder: " + e.getMessage());
+            System.out.println("⚠️ Error processing media files: " + e.getMessage());
+            e.printStackTrace();
         }
         return result;
+    }
+
+    private byte[] zipFiles(List<Path> files) throws IOException {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try (ZipOutputStream zos = new ZipOutputStream(baos)) {
+            for (Path file : files) {
+                ZipEntry entry = new ZipEntry(file.getFileName().toString());
+                zos.putNextEntry(entry);
+                Files.copy(file, zos);
+                zos.closeEntry();
+            }
+        }
+        return baos.toByteArray();
+    }
+
+    public Map<String, byte[]> unzipFiles(byte[] zipBytes) throws IOException {
+        Map<String, byte[]> files = new HashMap<>();
+        try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(zipBytes))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                byte[] buffer = new byte[1024];
+                int len;
+                while ((len = zis.read(buffer)) > 0) {
+                    baos.write(buffer, 0, len);
+                }
+                files.put(entry.getName(), baos.toByteArray());
+            }
+        }
+        return files;
     }
 
     public void deleteProcessedFiles(List<Path> files) {
@@ -50,7 +92,6 @@ public class MediaService {
         for (Path file : files) {
             try {
                 Files.delete(file);
-                System.out.println("Deleted: " + file.getFileName());
             } catch (IOException e) {
                 System.out.println("Failed to delete: " + file.getFileName());
             }
@@ -59,31 +100,32 @@ public class MediaService {
 
     public void restoreMedia(int recordIndex, byte[] encryptedImage, byte[] encryptedVideo, Decryptor decryptor, SecretKey aesKey) throws Exception {
         if (encryptedImage != null && encryptedImage.length > 0) {
-            byte[] imageBytes = decryptor.decryptBytes(encryptedImage, aesKey);
-            Path imagePath = Paths.get("media", "restored_image_" + recordIndex + ".jpg");
-            Files.write(imagePath, imageBytes);
-            System.out.println("📸 Image restored to: " + imagePath.toString());
+            byte[] zippedImages = decryptor.decryptBytes(encryptedImage, aesKey);
+            Map<String, byte[]> images = unzipFiles(zippedImages);
+            for (Map.Entry<String, byte[]> entry : images.entrySet()) {
+                Path path = Paths.get("media", "restored_" + recordIndex + "_" + entry.getKey());
+                Files.write(path, entry.getValue());
+                System.out.println("📸 Image restored: " + path);
+            }
         }
 
         if (encryptedVideo != null && encryptedVideo.length > 0) {
-            byte[] videoBytes = decryptor.decryptBytes(encryptedVideo, aesKey);
-            Path videoPath = Paths.get("media", "restored_video_" + recordIndex + ".mp4");
-            Files.write(videoPath, videoBytes);
-            System.out.println("🎥 Video restored to: " + videoPath.toString());
+            byte[] zippedVideos = decryptor.decryptBytes(encryptedVideo, aesKey);
+            Map<String, byte[]> videos = unzipFiles(zippedVideos);
+            for (Map.Entry<String, byte[]> entry : videos.entrySet()) {
+                Path path = Paths.get("media", "restored_" + recordIndex + "_" + entry.getKey());
+                Files.write(path, entry.getValue());
+                System.out.println("🎥 Video restored: " + path);
+            }
         }
     }
-
-    public byte[] decryptImageToBytes(byte[] encryptedImage, Decryptor decryptor, SecretKey aesKey) throws Exception {
-        if (encryptedImage != null && encryptedImage.length > 0) {
-            return decryptor.decryptBytes(encryptedImage, aesKey);
+    
+    // Helper to get raw bytes map for web display
+    public Map<String, byte[]> decryptMediaToMap(byte[] encryptedData, Decryptor decryptor, SecretKey aesKey) throws Exception {
+        if (encryptedData != null && encryptedData.length > 0) {
+            byte[] zipped = decryptor.decryptBytes(encryptedData, aesKey);
+            return unzipFiles(zipped);
         }
-        return null;
-    }
-
-    public byte[] decryptVideoToBytes(byte[] encryptedVideo, Decryptor decryptor, SecretKey aesKey) throws Exception {
-        if (encryptedVideo != null && encryptedVideo.length > 0) {
-            return decryptor.decryptBytes(encryptedVideo, aesKey);
-        }
-        return null;
+        return new HashMap<>();
     }
 }

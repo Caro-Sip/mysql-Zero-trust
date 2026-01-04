@@ -8,6 +8,10 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
 
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Collections;
+
 public class PatientService {
 
     private final KeyService keyService;
@@ -18,29 +22,11 @@ public class PatientService {
         this.mediaService = new MediaService();
     }
 
-    public void encryptAndPrepareRecord(PatientRecord record, String symptoms, String diagnosis) throws Exception {
-        // Load Keys
-        PublicKey doctorKey = keyService.loadPublicKey(KeyService.DOCTOR_PUBLIC_KEY);
-        PublicKey nurseKey = keyService.loadPublicKey(KeyService.NURSE_PUBLIC_KEY);
-
-        Encryptor doctorEncryptor = new Encryptor(doctorKey);
-        Encryptor nurseEncryptor = new Encryptor(nurseKey);
-
-        // Generate AES Key & Encrypt Data
-        SecretKey aesKey = doctorEncryptor.generateAESKey();
-        record.setEncryptedSymptoms(doctorEncryptor.encryptWithAES(symptoms, aesKey));
-        record.setEncryptedDiagnosis(doctorEncryptor.encryptWithAES(diagnosis, aesKey));
-
-        // Process Media
-        MediaService.MediaResult mediaResult = mediaService.processMediaFiles(doctorEncryptor, aesKey);
-        record.setEncryptedImages(mediaResult.imageBytes);
-        record.setEncryptedVideos(mediaResult.videoBytes);
-        
-        record.setDoctorEncryptedAesKey(doctorEncryptor.encryptAESKeyWithRSA(aesKey));
-        record.setNurseEncryptedAesKey(nurseEncryptor.encryptAESKeyWithRSA(aesKey));
+    public MediaService.MediaResult processEncryption(PatientRecord record, String symptoms, String diagnosis) throws Exception {
+        return processEncryption(record, symptoms, diagnosis, Collections.emptyList());
     }
 
-    public MediaService.MediaResult processEncryption(PatientRecord record, String symptoms, String diagnosis) throws Exception {
+    public MediaService.MediaResult processEncryption(PatientRecord record, String symptoms, String diagnosis, List<Path> mediaFiles) throws Exception {
         PublicKey doctorKey = keyService.loadPublicKey(KeyService.DOCTOR_PUBLIC_KEY);
         PublicKey nurseKey = keyService.loadPublicKey(KeyService.NURSE_PUBLIC_KEY);
 
@@ -51,7 +37,7 @@ public class PatientService {
         record.setEncryptedSymptoms(doctorEncryptor.encryptWithAES(symptoms, aesKey));
         record.setEncryptedDiagnosis(doctorEncryptor.encryptWithAES(diagnosis, aesKey));
 
-        MediaService.MediaResult mediaResult = mediaService.processMediaFiles(doctorEncryptor, aesKey);
+        MediaService.MediaResult mediaResult = mediaService.processMediaFiles(doctorEncryptor, aesKey, mediaFiles);
         record.setEncryptedImages(mediaResult.imageBytes);
         record.setEncryptedVideos(mediaResult.videoBytes);
 
@@ -103,7 +89,7 @@ public class PatientService {
         return new String[]{symptoms, diagnosis};
     }
 
-    public Map<String, String> getDecryptedMedia(PatientRecord record, boolean isDoctor) throws Exception {
+    public Map<String, List<String>> getDecryptedMedia(PatientRecord record, boolean isDoctor) throws Exception {
         String keyPath = isDoctor ? KeyService.DOCTOR_PRIVATE_KEY : KeyService.NURSE_PRIVATE_KEY;
         PrivateKey privateKey = keyService.loadPrivateKey(keyPath);
 
@@ -115,22 +101,20 @@ public class PatientService {
         }
 
         SecretKey aesKey = decryptor.decryptAESKey(encryptedAesKey);
-        Map<String, String> media = new HashMap<>();
+        Map<String, List<String>> media = new HashMap<>();
+        media.put("images", new java.util.ArrayList<>());
+        media.put("videos", new java.util.ArrayList<>());
 
-        byte[] imgBytes = mediaService.decryptImageToBytes(record.getEncryptedImages(), decryptor, aesKey);
-        if (imgBytes != null) {
-            media.put("image", Base64.getEncoder().encodeToString(imgBytes));
+        Map<String, byte[]> images = mediaService.decryptMediaToMap(record.getEncryptedImages(), decryptor, aesKey);
+        for (byte[] img : images.values()) {
+            media.get("images").add(Base64.getEncoder().encodeToString(img));
         }
 
-        byte[] vidBytes = mediaService.decryptVideoToBytes(record.getEncryptedVideos(), decryptor, aesKey);
-        if (vidBytes != null) {
-            media.put("video", Base64.getEncoder().encodeToString(vidBytes));
+        Map<String, byte[]> videos = mediaService.decryptMediaToMap(record.getEncryptedVideos(), decryptor, aesKey);
+        for (byte[] vid : videos.values()) {
+            media.get("videos").add(Base64.getEncoder().encodeToString(vid));
         }
 
         return media;
-    }
-    
-    public MediaService getMediaService() {
-        return mediaService;
     }
 }
